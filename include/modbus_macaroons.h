@@ -11,6 +11,9 @@
 /* Macaroons */
 #include "macaroons/macaroons.h"
 
+/* FreeRTOS */
+#include "FreeRTOS.h"
+
 /******************
  * SERVER FUNCTIONS
  *****************/

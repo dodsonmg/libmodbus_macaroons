@@ -40,7 +40,7 @@ static struct macaroon *server_macaroon_;
 static unsigned char *create_function_caveat_from_bitfield(int function_code_bitfield)
 {
     char function_code_bitfield_string[MAX_CAVEAT_LENGTH];
-    char *function_caveat = (char *)malloc(MAX_CAVEAT_LENGTH * sizeof(char));
+    char *function_caveat = (char *)pvPortMalloc(MAX_CAVEAT_LENGTH * sizeof(char));
 
     strncpy(function_caveat, FUNCTION_CAVEAT_TOKEN, MAX_CAVEAT_LENGTH);
     snprintf(function_code_bitfield_string, MAX_CAVEAT_LENGTH, "%d", function_code_bitfield);
@@ -116,7 +116,7 @@ static char *substr(const char *src, int m, int n)
     int len = n - m;
 
     // allocate (len + 1) chars for destination (+1 for extra null character)
-    char *dest = (char *)malloc(sizeof(char) * (len + 1));
+    char *dest = (char *)pvPortMalloc(sizeof(char) * (len + 1));
 
     // start with m'th char and copy 'len' chars into destination
     strncpy(dest, (src + m), len);
@@ -168,7 +168,7 @@ static unsigned char *create_address_caveat(uint16_t min_address, uint16_t max_a
 {
     uint32_t address_composed = (min_address << 16) + max_address;
     char address_composed_string[MAX_CAVEAT_LENGTH];
-    char *address_caveat = (char *)malloc(MAX_CAVEAT_LENGTH * sizeof(char));
+    char *address_caveat = (char *)pvPortMalloc(MAX_CAVEAT_LENGTH * sizeof(char));
 
     strncpy(address_caveat, ADDRESS_CAVEAT_TOKEN, MAX_CAVEAT_LENGTH);
     snprintf(address_composed_string, MAX_CAVEAT_LENGTH, "%d", address_composed);
@@ -284,7 +284,7 @@ int initialise_client_macaroon(modbus_t *ctx)
     uint8_t *serialised_macaroon;
 
     /* Allocate and initialize the memory to store the string */
-    serialised_macaroon = (uint8_t *)malloc(MODBUS_MAX_STRING_LENGTH * sizeof(uint8_t));
+    serialised_macaroon = (uint8_t *)pvPortMalloc(MODBUS_MAX_STRING_LENGTH * sizeof(uint8_t));
     memset(serialised_macaroon, 0, MODBUS_MAX_STRING_LENGTH * sizeof(uint8_t));
 
     serialised_macaroon_length = modbus_read_string(ctx, serialised_macaroon);
@@ -353,7 +353,7 @@ static int send_macaroon(modbus_t *ctx, int function, uint16_t addr, int nb)
     {
         /* inspect the Macaroon */
         int buf_sz = macaroon_inspect_size_hint(temp_macaroon);
-        char *buf = (char *)malloc(buf_sz * sizeof(unsigned char));
+        char *buf = (char *)pvPortMalloc(buf_sz * sizeof(unsigned char));
         macaroon_inspect(temp_macaroon, buf, buf_sz, &err);
         if (err != MACAROON_SUCCESS)
         {
@@ -366,7 +366,7 @@ static int send_macaroon(modbus_t *ctx, int function, uint16_t addr, int nb)
     }
 
     int buf_sz = macaroon_serialize_size_hint(temp_macaroon, MACAROON_V1);
-    unsigned char *buf = (unsigned char *)malloc(buf_sz * sizeof(unsigned char));
+    unsigned char *buf = (unsigned char *)pvPortMalloc(buf_sz * sizeof(unsigned char));
 
     macaroon_serialize(temp_macaroon, MACAROON_V1, buf, buf_sz, &err);
     if (err != MACAROON_SUCCESS)
@@ -687,6 +687,7 @@ int initialise_server_macaroon(modbus_t *ctx, const char *location, const char *
         return 0;
     }
 
+    printf("err: %d\n", err);
     return -1;
 }
 
@@ -762,7 +763,7 @@ static int process_macaroon(modbus_t *ctx, uint8_t *tab_string, int function, ui
         for (size_t i = 0; i < num_fpcs; ++i)
         {
             macaroon_first_party_caveat(M, i, &fpc, &fpc_sz);
-            fpcs[i] = (unsigned char *)malloc((fpc_sz + 1) * sizeof(unsigned char));
+            fpcs[i] = (unsigned char *)pvPortMalloc((fpc_sz + 1) * sizeof(unsigned char));
             strncpy((char *)fpcs[i], (char *)fpc, fpc_sz);
         }
 
@@ -881,13 +882,13 @@ static int process_macaroon(modbus_t *ctx, uint8_t *tab_string, int function, ui
  * */
 int modbus_preprocess_request_macaroons(modbus_t *ctx, uint8_t *req, modbus_mapping_t *mb_mapping)
 {
-    int *offset = (int *)malloc(sizeof(int));
-    int *slave_id = (int *)malloc(sizeof(int));
-    int *function = (int *)malloc(sizeof(int));
-    uint16_t *addr = (uint16_t *)malloc(sizeof(uint16_t));
-    int *nb = (int *)malloc(sizeof(int));
-    uint16_t *addr_wr = (uint16_t *)malloc(sizeof(uint16_t)); // only for write_and_read_registers
-    int *nb_wr = (int *)malloc(sizeof(int));                  // only for write_and_read_registers
+    int *offset = (int *)pvPortMalloc(sizeof(int));
+    int *slave_id = (int *)pvPortMalloc(sizeof(int));
+    int *function = (int *)pvPortMalloc(sizeof(int));
+    uint16_t *addr = (uint16_t *)pvPortMalloc(sizeof(uint16_t));
+    int *nb = (int *)pvPortMalloc(sizeof(int));
+    uint16_t *addr_wr = (uint16_t *)pvPortMalloc(sizeof(uint16_t)); // only for write_and_read_registers
+    int *nb_wr = (int *)pvPortMalloc(sizeof(int));                  // only for write_and_read_registers
 
     if (modbus_get_debug(ctx))
     {
@@ -929,7 +930,6 @@ int modbus_preprocess_request_macaroons(modbus_t *ctx, uint8_t *req, modbus_mapp
         size_t serialised_macaroon_length;
         unsigned char *serialised_macaroon;
 
-
         /**
          * Serialise the server Macaroon and feed it into tab_string
          * then continue to process the request
@@ -937,12 +937,13 @@ int modbus_preprocess_request_macaroons(modbus_t *ctx, uint8_t *req, modbus_mapp
         if (server_macaroon_ != NULL)
         {
             serialised_macaroon_length = macaroon_serialize_size_hint(server_macaroon_, MACAROON_V1);
-            serialised_macaroon = (unsigned char *)malloc(serialised_macaroon_length * sizeof(unsigned char));
+            serialised_macaroon = (unsigned char *)pvPortMalloc(serialised_macaroon_length * sizeof(unsigned char));
 
             macaroon_serialize(server_macaroon_, MACAROON_V1,
                                serialised_macaroon, serialised_macaroon_length, &err);
             if (err != MACAROON_SUCCESS)
             {
+                printf("err: %d\n", err);
                 return -1;
             }
 
