@@ -37,7 +37,7 @@ static struct macaroon *server_macaroon_;
  * e.g., the composition of MODBUS_FC_READ_COILS (0x01) and MODBUS_FC_READ_DISCRETE_INPUTS (0x02)
  * results in the bitfield 110, so the corresponding string would be "function = 6"
  */
-unsigned char *create_function_caveat_from_bitfield(int function_code_bitfield)
+static unsigned char *create_function_caveat_from_bitfield(int function_code_bitfield)
 {
     char function_code_bitfield_string[MAX_CAVEAT_LENGTH];
     char *function_caveat = (char *)malloc(MAX_CAVEAT_LENGTH * sizeof(char));
@@ -54,7 +54,7 @@ unsigned char *create_function_caveat_from_bitfield(int function_code_bitfield)
  * Takes a composite (READ-ONLY or WRITE-ONLY) and constructs a bitfield to pass to
  * create_function_caveat_from_bitfield()
  */
-unsigned char *create_function_caveat_from_composite(const char *function_code_composite)
+static unsigned char *create_function_caveat_from_composite(const char *function_code_composite)
 {
     uint32_t function_code_bitfield = 0;
 
@@ -89,7 +89,7 @@ unsigned char *create_function_caveat_from_composite(const char *function_code_c
  * Takes an array of function codes (e.g., int fc[] = {MODBUS_FC_READ_COILS, MODBUS_FC_READ_DISCRETE_INPUTS})
  * creates a bitfield and calls create_function_caveat_from_bitfield()
  */
-unsigned char *create_function_caveat_from_fc_array(int *function_codes, int num_codes)
+static unsigned char *create_function_caveat_from_fc_array(int *function_codes, int num_codes)
 {
     uint32_t function_code_bitfield = 0;
     for (int i = 0; i < num_codes; ++i)
@@ -103,14 +103,14 @@ unsigned char *create_function_caveat_from_fc_array(int *function_codes, int num
  * Takes a single function code (e.g., MODBUS_FC_READ_COILS), creates a bitfield and
  * calls create_function_caveat_from_bitfield()
  */
-unsigned char *create_function_caveat_from_fc(int function_code)
+static unsigned char *create_function_caveat_from_fc(int function_code)
 {
     return create_function_caveat_from_bitfield(1 << function_code);
 }
 
 // Below function extracts characters present in src
 // between m and n (excluding n)
-char *substr(const char *src, int m, int n)
+static char *substr(const char *src, int m, int n)
 {
     // get length of the destination string
     int len = n - m;
@@ -129,7 +129,7 @@ char *substr(const char *src, int m, int n)
  * Verifies that the function caveats are not mutually exclusive
  * e.g., that we don't have both READ-ONLY and WRITE-ONLY
  * */
-int check_function_caveats(unsigned char *first_party_caveats[], int num_caveats)
+static int check_function_caveats(unsigned char *first_party_caveats[], int num_caveats)
 {
     int token_length = strnlen(FUNCTION_CAVEAT_TOKEN, MAX_CAVEAT_LENGTH);
     unsigned char *tmp;
@@ -164,7 +164,7 @@ int check_function_caveats(unsigned char *first_party_caveats[], int num_caveats
  * ABCD is the min address
  * EFGH is the max address
  * */
-unsigned char *create_address_caveat(uint16_t min_address, uint16_t max_address)
+static unsigned char *create_address_caveat(uint16_t min_address, uint16_t max_address)
 {
     uint32_t address_composed = (min_address << 16) + max_address;
     char address_composed_string[MAX_CAVEAT_LENGTH];
@@ -182,7 +182,7 @@ unsigned char *create_address_caveat(uint16_t min_address, uint16_t max_address)
  * Verifies that the addresses in the request are not excluded by
  * address caveats
  * */
-int check_address_caveats(unsigned char *first_party_caveats[], int num_caveats, unsigned char *address_request)
+static int check_address_caveats(unsigned char *first_party_caveats[], int num_caveats, unsigned char *address_request)
 {
     unsigned char *fpc;
     int fpc_length;
@@ -232,7 +232,7 @@ int check_address_caveats(unsigned char *first_party_caveats[], int num_caveats,
  * For bitwise operations (e.g., read_bits), round up
  * to the nearest byte
  * */
-uint16_t find_max_address(int function, uint16_t addr, int nb)
+static uint16_t find_max_address(int function, uint16_t addr, int nb)
 {
     uint16_t addr_max;
 
@@ -303,7 +303,7 @@ int initialise_client_macaroon(modbus_t *ctx)
     }
 }
 
-int send_macaroon(modbus_t *ctx, int function, uint16_t addr, int nb)
+static int send_macaroon(modbus_t *ctx, int function, uint16_t addr, int nb)
 {
     int rc;
     struct macaroon *temp_macaroon;
@@ -362,7 +362,7 @@ int send_macaroon(modbus_t *ctx, int function, uint16_t addr, int nb)
 
         printf("> sending Macaroon\n");
         printf("%s\n", buf);
-        printf("%s\n", display_marker);
+        printf("%s\n", DISPLAY_MARKER);
     }
 
     int buf_sz = macaroon_serialize_size_hint(temp_macaroon, MACAROON_V1);
@@ -382,7 +382,7 @@ int send_macaroon(modbus_t *ctx, int function, uint16_t addr, int nb)
         {
             print_shim_info("macaroons_shim", __FUNCTION__);
             printf("> Macaroon response received\n");
-            printf("%s\n", display_marker);
+            printf("%s\n", DISPLAY_MARKER);
         }
         return 0;
     }
@@ -392,7 +392,7 @@ int send_macaroon(modbus_t *ctx, int function, uint16_t addr, int nb)
         {
             print_shim_info("macaroons_shim", __FUNCTION__);
             printf("> Macaroon response failed\n");
-            printf("%s\n", display_marker);
+            printf("%s\n", DISPLAY_MARKER);
         }
         return -1;
     }
@@ -696,7 +696,7 @@ int initialise_server_macaroon(modbus_t *ctx, const char *location, const char *
  * 2. Check if it's a valid Macaroon
  * 3. Perform verification on the Macaroon
  * */
-int process_macaroon(modbus_t *ctx, uint8_t *tab_string, int function, uint16_t addr, int nb)
+static int process_macaroon(modbus_t *ctx, uint8_t *tab_string, int function, uint16_t addr, int nb)
 {
     if (modbus_get_debug(ctx))
     {
@@ -726,7 +726,7 @@ int process_macaroon(modbus_t *ctx, uint8_t *tab_string, int function, uint16_t 
         {
             printf("> Macaroon verification: FAIL\n");
             printf("> FAILED TO DESERIALISE\n");
-            printf("%s\n", display_marker);
+            printf("%s\n", DISPLAY_MARKER);
         }
         return -1;
     }
@@ -750,7 +750,7 @@ int process_macaroon(modbus_t *ctx, uint8_t *tab_string, int function, uint16_t 
             {
                 printf("> Macaroon verification: FAIL\n");
                 printf("TOO MANY CAVEATS\n");
-                printf("%s\n", display_marker);
+                printf("%s\n", DISPLAY_MARKER);
             }
             return -1;
         }
@@ -783,7 +783,7 @@ int process_macaroon(modbus_t *ctx, uint8_t *tab_string, int function, uint16_t 
                         if (modbus_get_debug(ctx))
                         {
                             printf("> Failed to add caveat to verifier\n");
-                            printf("%s\n", display_marker);
+                            printf("%s\n", DISPLAY_MARKER);
                         }
                         return -1;
                     }
@@ -812,7 +812,7 @@ int process_macaroon(modbus_t *ctx, uint8_t *tab_string, int function, uint16_t 
                             if (modbus_get_debug(ctx))
                             {
                                 printf("> Macaroon verification: PASS\n");
-                                printf("%s\n", display_marker);
+                                printf("%s\n", DISPLAY_MARKER);
                             }
                             return 0;
                         }
@@ -821,7 +821,7 @@ int process_macaroon(modbus_t *ctx, uint8_t *tab_string, int function, uint16_t 
                             if (modbus_get_debug(ctx))
                             {
                                 printf("> Macaroon verification: FAIL\n");
-                                printf("%s\n", display_marker);
+                                printf("%s\n", DISPLAY_MARKER);
                             }
                         }
                     }
@@ -830,7 +830,7 @@ int process_macaroon(modbus_t *ctx, uint8_t *tab_string, int function, uint16_t 
                         if (modbus_get_debug(ctx))
                         {
                             printf("> Address range not protected as a Macaroon caveat\n");
-                            printf("%s\n", display_marker);
+                            printf("%s\n", DISPLAY_MARKER);
                         }
                     }
                 }
@@ -839,7 +839,7 @@ int process_macaroon(modbus_t *ctx, uint8_t *tab_string, int function, uint16_t 
                     if (modbus_get_debug(ctx))
                     {
                         printf("> Function not protected as a Macaroon caveat\n");
-                        printf("%s\n", display_marker);
+                        printf("%s\n", DISPLAY_MARKER);
                     }
                 }
             }
@@ -848,7 +848,7 @@ int process_macaroon(modbus_t *ctx, uint8_t *tab_string, int function, uint16_t 
                 if (modbus_get_debug(ctx))
                 {
                     printf("> Requested addresses are out of range\n");
-                    printf("%s\n", display_marker);
+                    printf("%s\n", DISPLAY_MARKER);
                 }
             }
         }
@@ -857,7 +857,7 @@ int process_macaroon(modbus_t *ctx, uint8_t *tab_string, int function, uint16_t 
             if (modbus_get_debug(ctx))
             {
                 printf("> Function caveats are mutually exclusive\n");
-                printf("%s\n", display_marker);
+                printf("%s\n", DISPLAY_MARKER);
             }
         }
     }
@@ -866,7 +866,7 @@ int process_macaroon(modbus_t *ctx, uint8_t *tab_string, int function, uint16_t 
         if (modbus_get_debug(ctx))
         {
             printf("> Macaroon verification: MACAROON NOT INITIALISED\n");
-            printf("%s\n", display_marker);
+            printf("%s\n", DISPLAY_MARKER);
         }
     }
 
@@ -919,7 +919,7 @@ int modbus_preprocess_request_macaroons(modbus_t *ctx, uint8_t *req, modbus_mapp
 
         if (modbus_get_debug(ctx))
         {
-            printf("%s\n", display_marker);
+            printf("%s\n", DISPLAY_MARKER);
         }
     }
     else if (*function == MODBUS_FC_READ_STRING)
@@ -951,7 +951,7 @@ int modbus_preprocess_request_macaroons(modbus_t *ctx, uint8_t *req, modbus_mapp
 
         if (modbus_get_debug(ctx))
         {
-            printf("%s\n", display_marker);
+            printf("%s\n", DISPLAY_MARKER);
         }
     }
     else
