@@ -271,7 +271,7 @@ static uint16_t find_max_address(int function, uint16_t addr, int nb)
 /******************
  * CLIENT FUNCTIONS
  *****************/
-int initialise_client_macaroon(modbus_t *ctx)
+int initialise_client_macaroon(modbus_t *ctx, char *serialised_macaroon, int serialised_macaroon_length)
 {
     enum macaroon_returncode err = MACAROON_SUCCESS;
 
@@ -280,16 +280,9 @@ int initialise_client_macaroon(modbus_t *ctx)
         print_shim_info("macaroons_shim", __FUNCTION__);
     }
 
-    int serialised_macaroon_length;
-    uint8_t *serialised_macaroon;
-
-    /* Allocate and initialize the memory to store the string */
-    serialised_macaroon = (uint8_t *)pvPortMalloc(MODBUS_MAX_STRING_LENGTH * sizeof(uint8_t));
-    memset(serialised_macaroon, 0, MODBUS_MAX_STRING_LENGTH * sizeof(uint8_t));
-
-    serialised_macaroon_length = modbus_read_string(ctx, serialised_macaroon);
-
-    // try to deserialise the string into a Macaroon
+    /**
+     * Deserialise the string into a Macaroon
+     * */
     client_macaroon_ = macaroon_deserialize(serialised_macaroon,
                                             serialised_macaroon_length, &err);
 
@@ -299,6 +292,7 @@ int initialise_client_macaroon(modbus_t *ctx)
     }
     else
     {
+        printf("err: %d\n", err);
         return -1;
     }
 }
@@ -721,7 +715,7 @@ static int process_macaroon(modbus_t *ctx, uint8_t *tab_string, int function, ui
 
     // try to deserialise the string into a Macaroon
     M = macaroon_deserialize(serialised_macaroon, serialised_macaroon_length, &err);
-    if(err != MACAROON_SUCCESS)
+    if (err != MACAROON_SUCCESS)
     {
         if (modbus_get_debug(ctx))
         {
@@ -764,6 +758,7 @@ static int process_macaroon(modbus_t *ctx, uint8_t *tab_string, int function, ui
         {
             macaroon_first_party_caveat(M, i, &fpc, &fpc_sz);
             fpcs[i] = (unsigned char *)pvPortMalloc((fpc_sz + 1) * sizeof(unsigned char));
+            memset(fpcs[i], 0, (fpc_sz + 1) * sizeof(unsigned char));
             strncpy((char *)fpcs[i], (char *)fpc, fpc_sz);
         }
 
@@ -779,7 +774,7 @@ static int process_macaroon(modbus_t *ctx, uint8_t *tab_string, int function, ui
                     macaroon_verifier_satisfy_exact(
                         V, (const unsigned char *)fpcs[i],
                         strnlen((char *)fpcs[i], MAX_CAVEAT_LENGTH), &err);
-                    if(err != MACAROON_SUCCESS)
+                    if (err != MACAROON_SUCCESS)
                     {
                         if (modbus_get_debug(ctx))
                         {
@@ -941,13 +936,14 @@ int modbus_preprocess_request_macaroons(modbus_t *ctx, uint8_t *req, modbus_mapp
 
             macaroon_serialize(server_macaroon_, MACAROON_V1,
                                serialised_macaroon, serialised_macaroon_length, &err);
+
             if (err != MACAROON_SUCCESS)
             {
                 printf("err: %d\n", err);
                 return -1;
             }
 
-            strncpy((char *)(mb_mapping->tab_string), (char *)serialised_macaroon, MODBUS_MAX_STRING_LENGTH);
+            memcpy(mb_mapping->tab_string, serialised_macaroon, serialised_macaroon_length);
         }
 
         if (modbus_get_debug(ctx))

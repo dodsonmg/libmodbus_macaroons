@@ -26,7 +26,7 @@ int modbus_preprocess_request_macaroons(modbus_t *ctx, uint8_t *req, modbus_mapp
  * CLIENT FUNCTIONS
  *****************/
 
-int initialise_client_macaroon(modbus_t *ctx);
+int initialise_client_macaroon(modbus_t *ctx, char *serialised_macaroon, int serialised_macaroon_length);
 
 /**
  * no function required for read/write token
