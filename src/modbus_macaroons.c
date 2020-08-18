@@ -942,8 +942,7 @@ int modbus_preprocess_request_macaroons(modbus_t *ctx, uint8_t *req, modbus_mapp
                 printf("err: %d\n", err);
                 return -1;
             }
-
-            memcpy(mb_mapping->tab_string, serialised_macaroon, serialised_macaroon_length);
+            strncpy((char *)mb_mapping->tab_string, (char *)serialised_macaroon, serialised_macaroon_length);
         }
 
         if (modbus_get_debug(ctx))
