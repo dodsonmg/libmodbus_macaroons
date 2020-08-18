@@ -726,147 +726,142 @@ static int process_macaroon(modbus_t *ctx, uint8_t *tab_string, int function, ui
         return -1;
     }
 
-    if (M != NULL)
-    {
-        /**
-         * - Confirm the fpcs aren't mutually exclusive (e.g., READ-ONLY and WRITE-ONLY)
-         * - Confirm requested addresses are not out of range (based on caveats)
-         * - Add all first party caveats to the verifier
-         * - Confirm that the requested function is one of the first party caveats
-         * - Confirm that the requested address range is one of the first party caveats
-         * - Verify the Macaroon
-         * */
-
-        /* count fpcs */
-        uint32_t num_fpcs = macaroon_num_first_party_caveats(M);
-        if (num_fpcs > MAX_CAVEATS)
-        {
-            if (modbus_get_debug(ctx))
-            {
-                printf("> Macaroon verification: FAIL\n");
-                printf("TOO MANY CAVEATS\n");
-                printf("%s\n", DISPLAY_MARKER);
-            }
-            return -1;
-        }
-
-        /* extract fpcs */
-        unsigned char *fpcs[MAX_CAVEATS];
-        const unsigned char *fpc;
-        size_t fpc_sz;
-        for (size_t i = 0; i < num_fpcs; ++i)
-        {
-            macaroon_first_party_caveat(M, i, &fpc, &fpc_sz);
-            fpcs[i] = (unsigned char *)pvPortMalloc((fpc_sz + 1) * sizeof(unsigned char));
-            memset(fpcs[i], 0, (fpc_sz + 1) * sizeof(unsigned char));
-            strncpy((char *)fpcs[i], (char *)fpc, fpc_sz);
-        }
-
-        // functions: perform mutual exclusion check
-        if (check_function_caveats(fpcs, num_fpcs) == 0)
-        {
-            // addresses: perform range check
-            if (check_address_caveats(fpcs, num_fpcs, ar) == 0)
-            {
-                for (size_t i = 0; i < num_fpcs; ++i)
-                {
-                    // add fpcs to verifier
-                    macaroon_verifier_satisfy_exact(
-                        V, (const unsigned char *)fpcs[i],
-                        strnlen((char *)fpcs[i], MAX_CAVEAT_LENGTH), &err);
-                    if (err != MACAROON_SUCCESS)
-                    {
-                        if (modbus_get_debug(ctx))
-                        {
-                            printf("> Failed to add caveat to verifier\n");
-                            printf("%s\n", DISPLAY_MARKER);
-                        }
-                        return -1;
-                    }
-
-                    // check if the requested function is a caveat
-                    if (strncmp((char *)fpcs[i], (char *)fc, MAX_CAVEAT_LENGTH) == 0)
-                    {
-                        function_as_caveat = 1;
-                    }
-                    else if (strncmp((char *)fpcs[i], (char *)ar, MAX_CAVEAT_LENGTH) == 0)
-                    {
-                        address_as_caveat = 1;
-                    }
-                }
-
-                // confirm the requested function is a caveat
-                if (function_as_caveat)
-                {
-                    // confirm the requested addresses is a caveat
-                    if (address_as_caveat)
-                    {
-                        // perform verification
-                        macaroon_verify(V, M, key_, key_sz_, NULL, 0, &err);
-                        if (err == MACAROON_SUCCESS)
-                        {
-                            if (modbus_get_debug(ctx))
-                            {
-                                printf("> Macaroon verification: PASS\n");
-                                printf("%s\n", DISPLAY_MARKER);
-                            }
-                            return 0;
-                        }
-                        else
-                        {
-                            if (modbus_get_debug(ctx))
-                            {
-                                printf("> Macaroon verification: FAIL\n");
-                                printf("%s\n", DISPLAY_MARKER);
-                            }
-                        }
-                    }
-                    else
-                    {
-                        if (modbus_get_debug(ctx))
-                        {
-                            printf("> Address range not protected as a Macaroon caveat\n");
-                            printf("%s\n", DISPLAY_MARKER);
-                        }
-                    }
-                }
-                else
-                {
-                    if (modbus_get_debug(ctx))
-                    {
-                        printf("> Function not protected as a Macaroon caveat\n");
-                        printf("%s\n", DISPLAY_MARKER);
-                    }
-                }
-            }
-            else
-            {
-                if (modbus_get_debug(ctx))
-                {
-                    printf("> Requested addresses are out of range\n");
-                    printf("%s\n", DISPLAY_MARKER);
-                }
-            }
-        }
-        else
-        {
-            if (modbus_get_debug(ctx))
-            {
-                printf("> Function caveats are mutually exclusive\n");
-                printf("%s\n", DISPLAY_MARKER);
-            }
-        }
-    }
-    else
+    if (M == NULL)
     {
         if (modbus_get_debug(ctx))
         {
             printf("> Macaroon verification: MACAROON NOT INITIALISED\n");
             printf("%s\n", DISPLAY_MARKER);
         }
+        return -1;
     }
 
-    return -1;
+    /**
+     * - Confirm the fpcs aren't mutually exclusive (e.g., READ-ONLY and WRITE-ONLY)
+     * - Confirm requested addresses are not out of range (based on caveats)
+     * - Add all first party caveats to the verifier
+     * - Confirm that the requested function is one of the first party caveats
+     * - Confirm that the requested address range is one of the first party caveats
+     * - Verify the Macaroon
+     * */
+
+    /* count fpcs */
+    uint32_t num_fpcs = macaroon_num_first_party_caveats(M);
+    if (num_fpcs > MAX_CAVEATS)
+    {
+        if (modbus_get_debug(ctx))
+        {
+            printf("> Macaroon verification: FAIL\n");
+            printf("TOO MANY CAVEATS\n");
+            printf("%s\n", DISPLAY_MARKER);
+        }
+        return -1;
+    }
+
+    /* extract fpcs */
+    unsigned char *fpcs[MAX_CAVEATS];
+    const unsigned char *fpc;
+    size_t fpc_sz;
+    for (size_t i = 0; i < num_fpcs; ++i)
+    {
+        macaroon_first_party_caveat(M, i, &fpc, &fpc_sz);
+        fpcs[i] = (unsigned char *)pvPortMalloc((fpc_sz + 1) * sizeof(unsigned char));
+        memset(fpcs[i], 0, (fpc_sz + 1) * sizeof(unsigned char));
+        strncpy((char *)fpcs[i], (char *)fpc, fpc_sz);
+    }
+
+    // functions: perform mutual exclusion check
+    if (!check_function_caveats(fpcs, num_fpcs) == 0)
+    {
+        if (modbus_get_debug(ctx))
+        {
+            printf("> Function caveats are mutually exclusive\n");
+            printf("%s\n", DISPLAY_MARKER);
+        }
+        return -1;
+    }
+
+    // addresses: perform range check
+    if (!check_address_caveats(fpcs, num_fpcs, ar) == 0)
+    {
+        if (modbus_get_debug(ctx))
+        {
+            printf("> Requested addresses are out of range\n");
+            printf("%s\n", DISPLAY_MARKER);
+        }
+        return -1;
+    }
+
+    /* add fpcs to the verifier */
+    for (size_t i = 0; i < num_fpcs; ++i)
+    {
+        // add fpcs to verifier
+        macaroon_verifier_satisfy_exact(
+            V, (const unsigned char *)fpcs[i],
+            strnlen((char *)fpcs[i], MAX_CAVEAT_LENGTH), &err);
+
+        if (err != MACAROON_SUCCESS)
+        {
+            if (modbus_get_debug(ctx))
+            {
+                printf("> Failed to add caveat to verifier\n");
+                printf("%s\n", DISPLAY_MARKER);
+            }
+            return -1;
+        }
+
+        /* check if the requested function and address range are caveats */
+        if (strncmp((char *)fpcs[i], (char *)fc, MAX_CAVEAT_LENGTH) == 0)
+        {
+            function_as_caveat = 1;
+        }
+        else if (strncmp((char *)fpcs[i], (char *)ar, MAX_CAVEAT_LENGTH) == 0)
+        {
+            address_as_caveat = 1;
+        }
+    }
+
+    // confirm the requested function is a caveat
+    if (!function_as_caveat)
+    {
+        if (modbus_get_debug(ctx))
+        {
+            printf("> Function not protected as a Macaroon caveat\n");
+            printf("%s\n", DISPLAY_MARKER);
+        }
+        return -1;
+    }
+
+    // confirm the requested addresses is a caveat
+    if (!address_as_caveat)
+    {
+        if (modbus_get_debug(ctx))
+        {
+            printf("> Address range not protected as a Macaroon caveat\n");
+            printf("%s\n", DISPLAY_MARKER);
+        }
+        return -1;
+    }
+
+    // perform verification
+    macaroon_verify(V, M, key_, key_sz_, NULL, 0, &err);
+    if (err != MACAROON_SUCCESS)
+    {
+        if (modbus_get_debug(ctx))
+        {
+            printf("> Macaroon verification: FAIL\n");
+            printf("%s\n", DISPLAY_MARKER);
+        }
+        return -1;
+    }
+
+    if (modbus_get_debug(ctx))
+    {
+        printf("> Macaroon verification: PASS\n");
+        printf("%s\n", DISPLAY_MARKER);
+    }
+
+    return 0;
 }
 
 /**
