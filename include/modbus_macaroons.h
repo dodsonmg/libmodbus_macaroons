@@ -11,14 +11,33 @@
 /* Macaroons */
 #include "macaroons/macaroons.h"
 
+#if defined(__freertos__)
 /* FreeRTOS */
 #include "FreeRTOS.h"
+#include "queue.h"
+#endif
+
+/******************
+ * TYPE DEFINITIONS
+ *****************/
+
+#if defined(__freertos__)
+/* structure to hold queue messages (requests and responses) */
+typedef struct _macaroons_queue_msg_t
+{
+  int msg_length;
+  uint8_t *msg;
+} macaroons_queue_msg_t;
+#endif
 
 /******************
  * SERVER FUNCTIONS
  *****************/
 
 int initialise_server_macaroon(modbus_t *ctx, const char *location, const char *key, const char *id);
+#if defined(__freertos__)
+int queue_server_macaroon(modbus_t *ctx, QueueHandle_t xQueueServerClientMacaroons);
+#endif
 int modbus_receive_macaroons(modbus_t *ctx, uint8_t *req);
 int modbus_preprocess_request_macaroons(modbus_t *ctx, uint8_t *req, modbus_mapping_t *mb_mapping);
 
@@ -26,8 +45,11 @@ int modbus_preprocess_request_macaroons(modbus_t *ctx, uint8_t *req, modbus_mapp
  * CLIENT FUNCTIONS
  *****************/
 
+#if defined(__freertos__)
+int initialise_client_macaroon(modbus_t *ctx, QueueHandle_t xQueueServerClientMacaroons);
+#else
 int initialise_client_macaroon(modbus_t *ctx, char *serialised_macaroon, int serialised_macaroon_length);
-
+#endif
 /**
  * no function required for read/write token
  * since no additional macaroon is sent with that request

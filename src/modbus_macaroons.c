@@ -18,12 +18,22 @@ static size_t location_sz_;
 static struct macaroon *client_macaroon_;
 static struct macaroon *server_macaroon_;
 
-/* constants */
+/***********
+ * CONSTANTS
+ **********/
 #define MAX_MACAROON_INITIALISATION_LENGTH 256
 #define MAX_CAVEATS 10
 #define MAX_CAVEAT_LENGTH 40
 #define FUNCTION_CAVEAT_TOKEN "function = "
 #define ADDRESS_CAVEAT_TOKEN "address = "
+
+#if defined(MACAROONS_LAYER)
+/* The queue used to communicate Macaroons from client to server. */
+extern QueueHandle_t xQueueClientServerMacaroons;
+
+/* The queue used to communicate Macaroons from server to client. */
+extern QueueHandle_t xQueueServerClientMacaroons;
+#endif
 
 /******************
  * HELPER FUNCTIONS
@@ -271,7 +281,11 @@ static uint16_t find_max_address(int function, uint16_t addr, int nb)
 /******************
  * CLIENT FUNCTIONS
  *****************/
+#if defined(__freertos__)
+int initialise_client_macaroon(modbus_t *ctx, QueueHandle_t xQueueServerClientMacaroons)
+#else
 int initialise_client_macaroon(modbus_t *ctx, char *serialised_macaroon, int serialised_macaroon_length)
+#endif
 {
     enum macaroon_returncode err = MACAROON_SUCCESS;
 
@@ -280,21 +294,46 @@ int initialise_client_macaroon(modbus_t *ctx, char *serialised_macaroon, int ser
         print_shim_info("macaroons_shim", __FUNCTION__);
     }
 
+#if defined(__freertos__)
+    size_t msg_length;
+    unsigned char *msg;
+
+    macaroons_queue_msg_t *pxQueueMsg;
+
+    /**
+     * Wait until the macaroon arrives in the queue - this task will block
+     * indefinitely provided INCLUDE_vTaskSuspend is set to 1 in
+     * FreeRTOSConfig.h. */
+    xQueueReceive(xQueueServerClientMacaroons, &pxQueueMsg, portMAX_DELAY);
+
+    /**
+     * deserialise and store the server macaroon
+     *
+     * this is a TOFU operation. the first client to dequeue it gets it...
+     * */
+    msg_length = pxQueueMsg->msg_length;
+    msg = pxQueueMsg->msg;
+
+    // try to deserialise the string into a Macaroon
+    client_macaroon_ = macaroon_deserialize(msg, msg_length, &err);
+#else
     /**
      * Deserialise the string into a Macaroon
      * */
     client_macaroon_ = macaroon_deserialize(serialised_macaroon,
                                             serialised_macaroon_length, &err);
-
-    if (err == MACAROON_SUCCESS)
+#endif
+    if (err != MACAROON_SUCCESS)
     {
-        return 0;
-    }
-    else
-    {
-        printf("err: %d\n", err);
+        if (modbus_get_debug(ctx))
+        {
+            printf("Failed to deserialise the server macaroon from the queue\n");
+            printf("err: %d\n", err);
+        }
         return -1;
     }
+
+    return 0;
 }
 
 static int send_macaroon(modbus_t *ctx, int function, uint16_t addr, int nb)
@@ -359,18 +398,35 @@ static int send_macaroon(modbus_t *ctx, int function, uint16_t addr, int nb)
         printf("%s\n", DISPLAY_MARKER);
     }
 
-    int buf_sz = macaroon_serialize_size_hint(temp_macaroon, MACAROON_V1);
-    unsigned char *buf = (unsigned char *)pvPortMalloc(buf_sz * sizeof(unsigned char));
+    int msg_length = macaroon_serialize_size_hint(temp_macaroon, MACAROON_V1);
+    unsigned char *msg = (unsigned char *)pvPortMalloc(msg_length * sizeof(unsigned char));
 
-    macaroon_serialize(temp_macaroon, MACAROON_V1, buf, buf_sz, &err);
+    macaroon_serialize(temp_macaroon, MACAROON_V1, msg, msg_length, &err);
     if (err != MACAROON_SUCCESS)
     {
         return -1;
     }
 
-    rc = modbus_write_string(ctx, buf, buf_sz);
+#if defined(__freertos__)
+    BaseType_t xReturned;
+    macaroons_queue_msg_t *pxQueueMsg = (macaroons_queue_msg_t *)pvPortMalloc(sizeof(macaroons_queue_msg_t));
+    pxQueueMsg->msg = msg;
+    pxQueueMsg->msg_length = msg_length;
 
-    if (rc == buf_sz)
+    /**
+     * Send to the queue - causing the queue receive task to unblock and
+     * process a request.  0 is used as the block time so the sending operation
+     * will not block - it shouldn't need to block as the queue should always
+     * be empty at this point in the code.
+     * */
+    xReturned = xQueueSend(xQueueClientServerMacaroons, &pxQueueMsg, 0U);
+    configASSERT(xReturned == pdPASS);
+
+    return 0;
+#else
+    rc = modbus_write_string(ctx, msg, msg_length);
+
+    if (rc == msg_length)
     {
         if (modbus_get_debug(ctx))
         {
@@ -390,6 +446,7 @@ static int send_macaroon(modbus_t *ctx, int function, uint16_t addr, int nb)
         }
         return -1;
     }
+#endif
 }
 
 /**
@@ -675,15 +732,60 @@ int initialise_server_macaroon(modbus_t *ctx, const char *location, const char *
 
     server_macaroon_ = macaroon_create(location_, location_sz_,
                                        key_, key_sz_, id_, id_sz_, &err);
-
-    if (err == MACAROON_SUCCESS)
+    if (err != MACAROON_SUCCESS)
     {
-        return 0;
+        if(modbus_get_debug(ctx)) {
+            printf("Failed to initialise Macaroon\n");
+            printf("err: %d\n", err);
+        }
+        return -1;
     }
 
-    printf("err: %d\n", err);
-    return -1;
+    return 0;
 }
+
+#if defined(__freertos__)
+int queue_server_macaroon(modbus_t *ctx, QueueHandle_t xQueueServerClientMacaroons)
+{
+    enum macaroon_returncode err = MACAROON_SUCCESS;
+    BaseType_t xReturned;
+    size_t msg_length;
+    unsigned char *msg;
+
+    /**
+     * serialise the macaroon and queue it for the client
+     *
+     * this is a TOFU operation. the first client to dequeue it gets it...
+     * */
+    msg_length = macaroon_serialize_size_hint(server_macaroon_, MACAROON_V1);
+    msg = (unsigned char *)pvPortMalloc(msg_length * sizeof(unsigned char));
+
+    macaroon_serialize(server_macaroon_, MACAROON_V1, msg, msg_length, &err);
+    if (err != MACAROON_SUCCESS)
+    {
+        if(modbus_get_debug(ctx)) {
+            printf("Failed to serialise Macaroon for the queue\n");
+            printf("err: %d\n", err);
+        }
+        return -1;
+    }
+
+    macaroons_queue_msg_t *pxQueueMsg = (macaroons_queue_msg_t *)pvPortMalloc(sizeof(macaroons_queue_msg_t));
+    pxQueueMsg->msg = msg;
+    pxQueueMsg->msg_length = msg_length;
+
+    /**
+     * Send to the queue - causing the queue receive task to unblock and
+     * process a request.  0 is used as the block time so the sending operation
+     * will not block - it shouldn't need to block as the queue should always
+     * be empty at this point in the code.
+     * */
+    xReturned = xQueueSend(xQueueServerClientMacaroons, &pxQueueMsg, 0U);
+    configASSERT(xReturned == pdPASS);
+
+    return 0;
+}
+#endif
 
 /**
  * Process an incoming Macaroon:
@@ -700,8 +802,24 @@ static int process_macaroon(modbus_t *ctx, uint8_t *tab_string, int function, ui
 
     enum macaroon_returncode err = MACAROON_SUCCESS;
 
-    unsigned char *serialised_macaroon = (unsigned char *)tab_string;
-    int serialised_macaroon_length = strnlen((char *)serialised_macaroon, MODBUS_MAX_STRING_LENGTH);
+    unsigned char *serialised_macaroon;
+    int serialised_macaroon_length;
+
+#if defined(__freertos__)
+    macaroons_queue_msg_t *pxQueueMsg;
+
+    /**
+     * Wait until the macaroon arrives in the queue - this task will block
+     * indefinitely provided INCLUDE_vTaskSuspend is set to 1 in
+     * FreeRTOSConfig.h. */
+    xQueueReceive(xQueueClientServerMacaroons, &pxQueueMsg, portMAX_DELAY);
+
+    serialised_macaroon = pxQueueMsg->msg_length;
+    serialised_macaroon_length = pxQueueMsg->msg;
+#else
+    serialised_macaroon = (unsigned char *)tab_string;
+    serialised_macaroon_length = strnlen((char *)serialised_macaroon, MODBUS_MAX_STRING_LENGTH);
+#endif
 
     unsigned char *fc = create_function_caveat_from_fc(function);
     int function_as_caveat = 0;
