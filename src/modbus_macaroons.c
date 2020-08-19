@@ -810,9 +810,10 @@ static int process_macaroon(modbus_t *ctx, uint8_t *tab_string, int function, ui
 
     /**
      * Wait until the macaroon arrives in the queue - this task will block
-     * indefinitely provided INCLUDE_vTaskSuspend is set to 1 in
-     * FreeRTOSConfig.h. */
-    xQueueReceive(xQueueClientServerMacaroons, &pxQueueMsg, portMAX_DELAY);
+     * for only 200 ms as the serialised macaroon should be in the queue
+     * already.  the client should send it before
+     * sending the request */
+    xQueueReceive(xQueueClientServerMacaroons, &pxQueueMsg, pdMS_TO_TICKS(200));
 
     serialised_macaroon = pxQueueMsg->msg_length;
     serialised_macaroon_length = pxQueueMsg->msg;
@@ -1088,7 +1089,7 @@ int modbus_preprocess_request_macaroons(modbus_t *ctx, uint8_t *req, modbus_mapp
 
         /**
          * Extract the previously-received Macaroon
-         * If verification is fails, return -1
+         * If verification fails, return -1
          * */
         if (process_macaroon(ctx, mb_mapping->tab_string, *function, *addr, *nb) != 0)
         {
