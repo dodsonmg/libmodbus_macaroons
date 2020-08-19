@@ -33,13 +33,15 @@ typedef struct _macaroons_queue_msg_t
 /******************
  * SERVER FUNCTIONS
  *****************/
-
 int initialise_server_macaroon(modbus_t *ctx, const char *location, const char *key, const char *id);
+int modbus_receive_macaroons(modbus_t *ctx, uint8_t *req);
+
 #if defined(__freertos__)
 int queue_server_macaroon(modbus_t *ctx, QueueHandle_t xQueueServerClientMacaroons);
-#endif
-int modbus_receive_macaroons(modbus_t *ctx, uint8_t *req);
+int modbus_preprocess_request_macaroons(modbus_t *ctx, uint8_t *req);
+#else
 int modbus_preprocess_request_macaroons(modbus_t *ctx, uint8_t *req, modbus_mapping_t *mb_mapping);
+#endif
 
 /******************
  * CLIENT FUNCTIONS

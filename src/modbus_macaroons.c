@@ -793,7 +793,11 @@ int queue_server_macaroon(modbus_t *ctx, QueueHandle_t xQueueServerClientMacaroo
  * 2. Check if it's a valid Macaroon
  * 3. Perform verification on the Macaroon
  * */
+#if defined(__freertos__)
+static int process_macaroon(modbus_t *ctx, int function, uint16_t addr, int nb)
+#else
 static int process_macaroon(modbus_t *ctx, uint8_t *tab_string, int function, uint16_t addr, int nb)
+#endif
 {
     if (modbus_get_debug(ctx))
     {
@@ -815,8 +819,8 @@ static int process_macaroon(modbus_t *ctx, uint8_t *tab_string, int function, ui
      * sending the request */
     xQueueReceive(xQueueClientServerMacaroons, &pxQueueMsg, pdMS_TO_TICKS(200));
 
-    serialised_macaroon = pxQueueMsg->msg_length;
-    serialised_macaroon_length = pxQueueMsg->msg;
+    serialised_macaroon = pxQueueMsg->msg;
+    serialised_macaroon_length = pxQueueMsg->msg_length;
 #else
     serialised_macaroon = (unsigned char *)tab_string;
     serialised_macaroon_length = strnlen((char *)serialised_macaroon, MODBUS_MAX_STRING_LENGTH);
@@ -989,7 +993,11 @@ static int process_macaroon(modbus_t *ctx, uint8_t *tab_string, int function, ui
  * E.g., Macaroon verification or zeroing the state string
  * that holds the Macaroon.
  * */
+#if defined(__freertos__)
+int modbus_preprocess_request_macaroons(modbus_t *ctx, uint8_t *req)
+#else
 int modbus_preprocess_request_macaroons(modbus_t *ctx, uint8_t *req, modbus_mapping_t *mb_mapping)
+#endif
 {
     int *offset = (int *)pvPortMalloc(sizeof(int));
     int *slave_id = (int *)pvPortMalloc(sizeof(int));
@@ -1011,7 +1019,9 @@ int modbus_preprocess_request_macaroons(modbus_t *ctx, uint8_t *req, modbus_mapp
     {
         print_modbus_decompose_request(ctx, req);
         printf("\n");
+#if !defined(__freertos__)
         print_mb_mapping(mb_mapping);
+#endif
     }
 
     /**
@@ -1019,8 +1029,11 @@ int modbus_preprocess_request_macaroons(modbus_t *ctx, uint8_t *req, modbus_mapp
      * If the function is READ_STRING, serialise the server Macaroon and store in tab_string
      * If the function is anything else, we verify the Macaroon
      * */
-    if (*function == MODBUS_FC_WRITE_STRING)
+    switch (*function)
     {
+    case MODBUS_FC_WRITE_STRING:
+    {
+#if !defined(__freertos__)
         /**
          * Zero out the state variable where the Macaroon string is stored
          * then continue to process the request
@@ -1031,9 +1044,13 @@ int modbus_preprocess_request_macaroons(modbus_t *ctx, uint8_t *req, modbus_mapp
         {
             printf("%s\n", DISPLAY_MARKER);
         }
+#endif
     }
-    else if (*function == MODBUS_FC_READ_STRING)
+    break;
+
+    case MODBUS_FC_READ_STRING:
     {
+#if !defined(__freertos__)
         enum macaroon_returncode err = MACAROON_SUCCESS;
 
         size_t serialised_macaroon_length;
@@ -1063,8 +1080,11 @@ int modbus_preprocess_request_macaroons(modbus_t *ctx, uint8_t *req, modbus_mapp
         {
             printf("%s\n", DISPLAY_MARKER);
         }
+#endif
     }
-    else
+    break;
+
+    default:
     {
         /**
          * process_macaroon() needs an address range, which is tricky
@@ -1091,10 +1111,15 @@ int modbus_preprocess_request_macaroons(modbus_t *ctx, uint8_t *req, modbus_mapp
          * Extract the previously-received Macaroon
          * If verification fails, return -1
          * */
+#if defined(__freertos__)
+        if (process_macaroon(ctx, *function, *addr, *nb) != 0)
+#else
         if (process_macaroon(ctx, mb_mapping->tab_string, *function, *addr, *nb) != 0)
+#endif
         {
             return -1;
         }
+    }
     }
 
     return 0;
