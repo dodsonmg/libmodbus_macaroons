@@ -17,9 +17,9 @@
 #include "queue.h"
 #endif
 
-/******************
- * TYPE DEFINITIONS
- *****************/
+/*************
+ * DEFINITIONS
+ ************/
 
 #if defined(__freertos__)
 /* structure to hold queue messages (requests and responses) */
@@ -28,6 +28,9 @@ typedef struct _macaroons_queue_msg_t
   int msg_length;
   uint8_t *msg;
 } macaroons_queue_msg_t;
+
+/* define the length of the queue used to pass macaroons */
+#define MACAROONS_QUEUE_LENGTH 1
 #endif
 
 /******************
@@ -37,7 +40,7 @@ int initialise_server_macaroon(modbus_t *ctx, const char *location, const char *
 int modbus_receive_macaroons(modbus_t *ctx, uint8_t *req);
 
 #if defined(__freertos__)
-int queue_server_macaroon(modbus_t *ctx, QueueHandle_t xQueueServerClientMacaroons);
+int queue_server_macaroon(modbus_t *ctx);
 int modbus_preprocess_request_macaroons(modbus_t *ctx, uint8_t *req);
 #else
 int modbus_preprocess_request_macaroons(modbus_t *ctx, uint8_t *req, modbus_mapping_t *mb_mapping);
@@ -48,7 +51,7 @@ int modbus_preprocess_request_macaroons(modbus_t *ctx, uint8_t *req, modbus_mapp
  *****************/
 
 #if defined(__freertos__)
-int initialise_client_macaroon(modbus_t *ctx, QueueHandle_t xQueueServerClientMacaroons);
+int initialise_client_macaroon(modbus_t *ctx);
 #else
 int initialise_client_macaroon(modbus_t *ctx, char *serialised_macaroon, int serialised_macaroon_length);
 #endif
