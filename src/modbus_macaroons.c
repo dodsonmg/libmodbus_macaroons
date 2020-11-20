@@ -27,12 +27,6 @@ static struct macaroon *server_macaroon_;
 #define FUNCTION_CAVEAT_TOKEN "function = "
 #define ADDRESS_CAVEAT_TOKEN "address = "
 
-/* The queue used to communicate Macaroons from client to server. */
-extern QueueHandle_t xQueueClientServerMacaroons;
-
-/* The queue used to communicate Macaroons from server to client. */
-extern QueueHandle_t xQueueServerClientMacaroons;
-
 /******************
  * HELPER FUNCTIONS
  *****************/
@@ -273,31 +267,31 @@ static uint16_t find_max_address(int function, uint16_t addr, int nb)
 
     switch (function)
     {
-    case MODBUS_FC_READ_COILS:
-    case MODBUS_FC_WRITE_MULTIPLE_COILS:
-    case MODBUS_FC_READ_DISCRETE_INPUTS:
-        addr_max = addr + (nb / 8) + ((nb % 8) ? 1 : 0);
-        break;
-    case MODBUS_FC_READ_HOLDING_REGISTERS:
-    case MODBUS_FC_READ_INPUT_REGISTERS:
-    case MODBUS_FC_WRITE_MULTIPLE_REGISTERS:
-    case MODBUS_FC_WRITE_AND_READ_REGISTERS:
-        addr_max = addr + (nb * 2);
-        break;
-    case MODBUS_FC_WRITE_SINGLE_COIL:
-    case MODBUS_FC_REPORT_SLAVE_ID:
-    case MODBUS_FC_READ_EXCEPTION_STATUS:
-        addr_max = addr;
-        break;
-    case MODBUS_FC_WRITE_SINGLE_REGISTER:
-    case MODBUS_FC_MASK_WRITE_REGISTER:
-        addr_max = addr + 2;
-        break;
-    case MODBUS_FC_WRITE_STRING:
-        addr_max = addr + nb;
-        break;
-    default:
-        addr_max = addr;
+        case MODBUS_FC_READ_COILS:
+        case MODBUS_FC_WRITE_MULTIPLE_COILS:
+        case MODBUS_FC_READ_DISCRETE_INPUTS:
+            addr_max = addr + (nb / 8) + ((nb % 8) ? 1 : 0);
+            break;
+        case MODBUS_FC_READ_HOLDING_REGISTERS:
+        case MODBUS_FC_READ_INPUT_REGISTERS:
+        case MODBUS_FC_WRITE_MULTIPLE_REGISTERS:
+        case MODBUS_FC_WRITE_AND_READ_REGISTERS:
+            addr_max = addr + (nb * 2);
+            break;
+        case MODBUS_FC_WRITE_SINGLE_COIL:
+        case MODBUS_FC_REPORT_SLAVE_ID:
+        case MODBUS_FC_READ_EXCEPTION_STATUS:
+            addr_max = addr;
+            break;
+        case MODBUS_FC_WRITE_SINGLE_REGISTER:
+        case MODBUS_FC_MASK_WRITE_REGISTER:
+            addr_max = addr + 2;
+            break;
+        case MODBUS_FC_WRITE_STRING:
+            addr_max = addr + nb;
+            break;
+        default:
+            addr_max = addr;
     }
 
     return addr_max;
@@ -306,11 +300,7 @@ static uint16_t find_max_address(int function, uint16_t addr, int nb)
 /******************
  * CLIENT FUNCTIONS
  *****************/
-#if defined(__freertos__)
-int initialise_client_macaroon(modbus_t *ctx)
-#else
 int initialise_client_macaroon(modbus_t *ctx, char *serialised_macaroon, int serialised_macaroon_length)
-#endif
 {
     enum macaroon_returncode err = MACAROON_SUCCESS;
 
@@ -319,37 +309,11 @@ int initialise_client_macaroon(modbus_t *ctx, char *serialised_macaroon, int ser
         print_shim_info("macaroons_shim", __FUNCTION__);
     }
 
-#if defined(__freertos__)
-    size_t msg_length;
-    unsigned char *msg;
-
-    macaroons_queue_msg_t *pxQueueMsg;
-
-    /**
-     * Wait until the macaroon arrives in the queue - this task will block
-     * indefinitely provided INCLUDE_vTaskSuspend is set to 1 in
-     * FreeRTOSConfig.h. */
-    xQueueReceive(xQueueServerClientMacaroons, &pxQueueMsg, portMAX_DELAY);
-
-    /**
-     * deserialise and store the server macaroon
-     *
-     * this is a TOFU operation. the first client to dequeue it gets it...
-     * */
-    msg_length = pxQueueMsg->msg_length;
-    msg = pxQueueMsg->msg;
-
-    // try to deserialise the string into a Macaroon
-    client_macaroon_ = macaroon_deserialize(msg, msg_length, &err);
-
-    vPortFree(pxQueueMsg);
-#else
     /**
      * Deserialise the string into a Macaroon
      * */
     client_macaroon_ = macaroon_deserialize(serialised_macaroon,
-                                            serialised_macaroon_length, &err);
-#endif
+            serialised_macaroon_length, &err);
     if (err != MACAROON_SUCCESS)
     {
         if (modbus_get_debug(ctx))
@@ -386,10 +350,10 @@ static int send_macaroon(modbus_t *ctx, int function, uint16_t addr, int nb)
     /* add the function as a caveat to a temporary Macaroon*/
     unsigned char *function_caveat = create_function_caveat_from_fc(function);
     temp_macaroon = macaroon_add_first_party_caveat(
-        client_macaroon_,
-        function_caveat,
-        strnlen((char *)function_caveat, MAX_CAVEAT_LENGTH),
-        &err);
+            client_macaroon_,
+            function_caveat,
+            strnlen((char *)function_caveat, MAX_CAVEAT_LENGTH),
+            &err);
 #if defined(__freertos__)
     vPortFree(function_caveat);
 #else
@@ -405,10 +369,10 @@ static int send_macaroon(modbus_t *ctx, int function, uint16_t addr, int nb)
     uint16_t addr_max = find_max_address(function, addr, nb);
     unsigned char *address_caveat = create_address_caveat(addr, addr_max);
     temp_macaroon = macaroon_add_first_party_caveat(
-        temp_macaroon,
-        address_caveat,
-        strnlen((char *)address_caveat, MAX_CAVEAT_LENGTH),
-        &err);
+            temp_macaroon,
+            address_caveat,
+            strnlen((char *)address_caveat, MAX_CAVEAT_LENGTH),
+            &err);
     if (err != MACAROON_SUCCESS)
     {
         return -1;
@@ -450,39 +414,7 @@ static int send_macaroon(modbus_t *ctx, int function, uint16_t addr, int nb)
         return -1;
     }
 
-#if defined(__freertos__)
-    BaseType_t xReturned;
-    macaroons_queue_msg_t *pxQueueMsg = (macaroons_queue_msg_t *)pvPortMalloc(sizeof(macaroons_queue_msg_t));
-    pxQueueMsg->msg = msg;
-    pxQueueMsg->msg_length = msg_length;
-
-    /**
-     * Send to the queue - causing the queue receive task to unblock and
-     * process a request.  0 is used as the block time so the sending operation
-     * will not block - it shouldn't need to block as the queue should always
-     * be empty at this point in the code.
-     * */
-#if defined(MICROBENCHMARK)
-    /* for MICROBENCHMARK, the sever may iterate over the same command many times.
-     * the server normally clears the Macaroon queue when processing a request,
-     * which would require the Macaroon to be regenerated and requeued for each
-     * iteration of the processing loop.  instead, we can use xQueuePeek/xQueueOverwrite,
-     * which will keep the Macaroon in the queue during each microbenchmark iteration.
-     *
-     * this introduces a vulnerability and should only be used for microbenchmarking.
-     * we wouldn't want a stale macaroon to be reused during normal operation
-     */
-    configASSERT(MACAROONS_QUEUE_LENGTH == 1); /* required for Overwrite/Peek */
-    xReturned = xQueueOverwrite(xQueueClientServerMacaroons, &pxQueueMsg);
-#else
-    xReturned = xQueueSend(xQueueClientServerMacaroons, &pxQueueMsg, 0U);
-#endif /* defined(MICROBENCHMARK) */
-    configASSERT(xReturned == pdPASS);
-
-    rc = msg_length; /* supports remaining common code */
-#else
     rc = modbus_write_string(ctx, msg, msg_length);
-#endif /* defined(__freertos__) */
 
     macaroon_destroy(temp_macaroon);
 
@@ -687,7 +619,7 @@ int modbus_write_registers_macaroons(modbus_t *ctx, int addr, int nb, const uint
  *    The unit test appears designed to fail
  * */
 int modbus_mask_write_register_macaroons(modbus_t *ctx, int addr,
-                                         uint16_t and_mask, uint16_t or_mask)
+        uint16_t and_mask, uint16_t or_mask)
 {
     if (modbus_get_debug(ctx))
     {
@@ -710,9 +642,9 @@ int modbus_mask_write_register_macaroons(modbus_t *ctx, int addr,
  *    registers from remote device to dest array
  * */
 int modbus_write_and_read_registers_macaroons(modbus_t *ctx, int write_addr,
-                                              int write_nb, const uint16_t *src,
-                                              int read_addr, int read_nb,
-                                              uint16_t *dest)
+        int write_nb, const uint16_t *src,
+        int read_addr, int read_nb,
+        uint16_t *dest)
 {
     if (modbus_get_debug(ctx))
     {
@@ -732,7 +664,7 @@ int modbus_write_and_read_registers_macaroons(modbus_t *ctx, int write_addr,
     if (send_macaroon(ctx, MODBUS_FC_WRITE_AND_READ_REGISTERS, addr, nb) == 0)
     {
         return modbus_write_and_read_registers(ctx, write_addr, write_nb, src,
-                                               read_addr, read_nb, dest);
+                read_addr, read_nb, dest);
     }
 
     return -1;
@@ -746,7 +678,7 @@ int modbus_write_and_read_registers_macaroons(modbus_t *ctx, int write_addr,
  *    serial communication)
  * */
 int modbus_report_slave_id_macaroons(modbus_t *ctx, int max_dest,
-                                     uint8_t *dest)
+        uint8_t *dest)
 {
     if (modbus_get_debug(ctx))
     {
@@ -790,7 +722,7 @@ int initialise_server_macaroon(modbus_t *ctx, const char *location, const char *
     location_sz_ = strnlen(location, MAX_MACAROON_INITIALISATION_LENGTH);
 
     server_macaroon_ = macaroon_create(location_, location_sz_,
-                                       key_, key_sz_, id_, id_sz_, &err);
+            key_, key_sz_, id_, id_sz_, &err);
     if (err != MACAROON_SUCCESS)
     {
         if(modbus_get_debug(ctx)) {
@@ -803,60 +735,13 @@ int initialise_server_macaroon(modbus_t *ctx, const char *location, const char *
     return 0;
 }
 
-#if defined(__freertos__)
-int queue_server_macaroon(modbus_t *ctx)
-{
-    enum macaroon_returncode err = MACAROON_SUCCESS;
-    BaseType_t xReturned;
-    size_t msg_length;
-    unsigned char *msg;
-
-    /**
-     * serialise the macaroon and queue it for the client
-     *
-     * this is a TOFU operation. the first client to dequeue it gets it...
-     * */
-    msg_length = macaroon_serialize_size_hint(server_macaroon_, MACAROON_V1);
-    msg = (unsigned char *)pvPortMalloc(msg_length * sizeof(unsigned char));
-
-    macaroon_serialize(server_macaroon_, MACAROON_V1, msg, msg_length, &err);
-    if (err != MACAROON_SUCCESS)
-    {
-        if(modbus_get_debug(ctx)) {
-            printf("Failed to serialise Macaroon for the queue\n");
-            printf("err: %d\n", err);
-        }
-        return -1;
-    }
-
-    macaroons_queue_msg_t *pxQueueMsg = (macaroons_queue_msg_t *)pvPortMalloc(sizeof(macaroons_queue_msg_t));
-    pxQueueMsg->msg = msg;
-    pxQueueMsg->msg_length = msg_length;
-
-    /**
-     * Send to the queue - causing the queue receive task to unblock and
-     * process a request.  0 is used as the block time so the sending operation
-     * will not block - it shouldn't need to block as the queue should always
-     * be empty at this point in the code.
-     * */
-    xReturned = xQueueSend(xQueueServerClientMacaroons, &pxQueueMsg, 0U);
-    configASSERT(xReturned == pdPASS);
-
-    return 0;
-}
-#endif
-
 /**
  * Process an incoming Macaroon:
  * 1. Deserialise a string
  * 2. Check if it's a valid Macaroon
  * 3. Perform verification on the Macaroon
  * */
-#if defined(__freertos__)
-static int process_macaroon(modbus_t *ctx, int function, uint16_t addr, int nb)
-#else
 static int process_macaroon(modbus_t *ctx, uint8_t *tab_string, int function, uint16_t addr, int nb)
-#endif
 {
     if (modbus_get_debug(ctx))
     {
@@ -868,35 +753,8 @@ static int process_macaroon(modbus_t *ctx, uint8_t *tab_string, int function, ui
     unsigned char *serialised_macaroon;
     int serialised_macaroon_length;
 
-#if defined(__freertos__)
-    macaroons_queue_msg_t *pxQueueMsg;
-
-    /**
-     * Wait until the macaroon arrives in the queue - this task will block
-     * for only 200 ms as the serialised macaroon should be in the queue
-     * already.  the client should send it before
-     * sending the request */
-#if defined(MICROBENCHMARK)
-    /* if this is a microbenchmark, we don't want to dequeue the Macaroon
-     * when processing each request, because we will be iterating over the
-     * request processing multiple times without returning to the client,
-     * so no new Macaroon will be sent.
-     *
-     * this introduces a vulnerability and should only be used for microbenchmarking.
-     * we don't want to allow use of a stale macaroon during normal operation
-     */
-    configASSERT(MACAROONS_QUEUE_LENGTH == 1); /* required for Overwrite/Peek */
-    xQueuePeek(xQueueClientServerMacaroons, &pxQueueMsg, pdMS_TO_TICKS(200));
-#else
-    xQueueReceive(xQueueClientServerMacaroons, &pxQueueMsg, pdMS_TO_TICKS(200));
-#endif /* defined(MICROBENCHMARK) */
-    serialised_macaroon = pxQueueMsg->msg;
-    serialised_macaroon_length = pxQueueMsg->msg_length;
-
-#else
     serialised_macaroon = (unsigned char *)tab_string;
     serialised_macaroon_length = strnlen((char *)serialised_macaroon, MODBUS_MAX_STRING_LENGTH);
-#endif /* defined(__freertos__) */
 
     unsigned char *fc = create_function_caveat_from_fc(function);
     int function_as_caveat = 0;
@@ -997,8 +855,8 @@ static int process_macaroon(modbus_t *ctx, uint8_t *tab_string, int function, ui
     {
         // add fpcs to verifier
         macaroon_verifier_satisfy_exact(
-            V, (const unsigned char *)fpcs[i],
-            strnlen((char *)fpcs[i], MAX_CAVEAT_LENGTH), &err);
+                V, (const unsigned char *)fpcs[i],
+                strnlen((char *)fpcs[i], MAX_CAVEAT_LENGTH), &err);
 
         if (err != MACAROON_SUCCESS)
         {
@@ -1083,11 +941,7 @@ static int process_macaroon(modbus_t *ctx, uint8_t *tab_string, int function, ui
  * E.g., Macaroon verification or zeroing the state string
  * that holds the Macaroon.
  * */
-#if defined(__freertos__)
-int modbus_preprocess_request_macaroons(modbus_t *ctx, uint8_t *req)
-#else
 int modbus_preprocess_request_macaroons(modbus_t *ctx, uint8_t *req, modbus_mapping_t *mb_mapping)
-#endif
 {
     int offset;
     int slave_id;
@@ -1109,9 +963,7 @@ int modbus_preprocess_request_macaroons(modbus_t *ctx, uint8_t *req, modbus_mapp
     {
         print_modbus_decompose_request(ctx, req);
         printf("\n");
-#if !defined(__freertos__)
         print_mb_mapping(mb_mapping);
-#endif
     }
 
     /**
@@ -1121,96 +973,96 @@ int modbus_preprocess_request_macaroons(modbus_t *ctx, uint8_t *req, modbus_mapp
      * */
     switch (function)
     {
-    case MODBUS_FC_WRITE_STRING:
-    {
-#if !defined(__freertos__)
-        /**
-         * Zero out the state variable where the Macaroon string is stored
-         * then continue to process the request
-         * */
-        memset(mb_mapping->tab_string, 0, MODBUS_MAX_STRING_LENGTH * sizeof(uint8_t));
-
-        if (modbus_get_debug(ctx))
-        {
-            printf("%s\n", DISPLAY_MARKER);
-        }
-#endif
-    }
-    break;
-
-    case MODBUS_FC_READ_STRING:
-    {
-#if !defined(__freertos__)
-        enum macaroon_returncode err = MACAROON_SUCCESS;
-
-        size_t serialised_macaroon_length;
-        unsigned char *serialised_macaroon;
-
-        /**
-         * Serialise the server Macaroon and feed it into tab_string
-         * then continue to process the request
-         * */
-        if (server_macaroon_ != NULL)
-        {
-            serialised_macaroon_length = macaroon_serialize_size_hint(server_macaroon_, MACAROON_V1);
-            serialised_macaroon = (unsigned char *)malloc(serialised_macaroon_length * sizeof(unsigned char));
-
-            macaroon_serialize(server_macaroon_, MACAROON_V1,
-                               serialised_macaroon, serialised_macaroon_length, &err);
-
-            if (err != MACAROON_SUCCESS)
+        case MODBUS_FC_WRITE_STRING:
             {
-                printf("err: %d\n", err);
-                return -1;
+                /**
+                 * Zero out the state variable where the Macaroon string is stored
+                 * then continue to process the request
+                 * */
+                memset(mb_mapping->tab_string, 0, MODBUS_MAX_STRING_LENGTH * sizeof(uint8_t));
+
+                if (modbus_get_debug(ctx))
+                {
+                    printf("%s\n", DISPLAY_MARKER);
+                }
             }
-            strncpy((char *)mb_mapping->tab_string, (char *)serialised_macaroon, serialised_macaroon_length);
-            free(serialised_macaroon);
-        }
+            break;
 
-        if (modbus_get_debug(ctx))
-        {
-            printf("%s\n", DISPLAY_MARKER);
-        }
-#endif
-    }
-    break;
+        case MODBUS_FC_READ_STRING:
+            {
+                enum macaroon_returncode err = MACAROON_SUCCESS;
 
-    default:
-    {
-        /**
-         * process_macaroon() needs an address range, which is tricky
-         * for write_and_read_registers, since it has two ranges
-         *
-         * we need to find the entire range that the function is trying to access
-         * since there's no way to handle disjoint caveats
-         *
-         * based on modbus.c, addr = write_addr, nb = write_nb, addr_wr = read_addr, nb_wr = read_nb
-         * */
-        if (function == MODBUS_FC_WRITE_AND_READ_REGISTERS)
-        {
-            uint16_t write_addr = addr;
-            uint16_t read_addr = addr_wr;
-            int write_nb = nb;
-            int read_nb = nb_wr;
-            uint16_t write_addr_max = find_max_address(MODBUS_FC_WRITE_AND_READ_REGISTERS, write_addr, write_nb);
-            uint16_t read_addr_max = find_max_address(MODBUS_FC_WRITE_AND_READ_REGISTERS, read_addr, read_nb);
-            addr = (write_addr < read_addr) ? write_addr : read_addr;
-            nb = ((write_addr < read_addr) ? (read_addr_max - write_addr) : (write_addr_max - read_addr)) / 2;
-        }
+                size_t serialised_macaroon_length;
+                unsigned char *serialised_macaroon;
 
-        /**
-         * Extract the previously-received Macaroon
-         * If verification fails, return -1
-         * */
+                /**
+                 * Serialise the server Macaroon and feed it into tab_string
+                 * then continue to process the request
+                 * */
+                if (server_macaroon_ != NULL)
+                {
+                    serialised_macaroon_length = macaroon_serialize_size_hint(server_macaroon_, MACAROON_V1);
 #if defined(__freertos__)
-        if (process_macaroon(ctx, function, addr, nb) != 0)
+                    serialised_macaroon = (unsigned char *)pvPortMalloc(serialised_macaroon_length * sizeof(unsigned char));
 #else
-        if (process_macaroon(ctx, mb_mapping->tab_string, function, addr, nb) != 0)
+                    serialised_macaroon = (unsigned char *)malloc(serialised_macaroon_length * sizeof(unsigned char));
 #endif
-        {
-            return -1;
-        }
-    }
+
+                    macaroon_serialize(server_macaroon_, MACAROON_V1,
+                            serialised_macaroon, serialised_macaroon_length, &err);
+
+                    if (err != MACAROON_SUCCESS)
+                    {
+                        printf("err: %d\n", err);
+                        return -1;
+                    }
+                    strncpy((char *)mb_mapping->tab_string, (char *)serialised_macaroon, serialised_macaroon_length);
+#if defined(__freertos__)
+                    vPortFree(serialised_macaroon);
+#else
+                    free(serialised_macaroon);
+#endif
+                }
+
+                if (modbus_get_debug(ctx))
+                {
+                    printf("%s\n", DISPLAY_MARKER);
+                }
+            }
+            break;
+
+        default:
+            {
+                /**
+                 * process_macaroon() needs an address range, which is tricky
+                 * for write_and_read_registers, since it has two ranges
+                 *
+                 * we need to find the entire range that the function is trying to access
+                 * since there's no way to handle disjoint caveats
+                 *
+                 * based on modbus.c, addr = write_addr, nb = write_nb, addr_wr = read_addr, nb_wr = read_nb
+                 * */
+                if (function == MODBUS_FC_WRITE_AND_READ_REGISTERS)
+                {
+                    uint16_t write_addr = addr;
+                    uint16_t read_addr = addr_wr;
+                    int write_nb = nb;
+                    int read_nb = nb_wr;
+                    uint16_t write_addr_max = find_max_address(MODBUS_FC_WRITE_AND_READ_REGISTERS, write_addr, write_nb);
+                    uint16_t read_addr_max = find_max_address(MODBUS_FC_WRITE_AND_READ_REGISTERS, read_addr, read_nb);
+                    addr = (write_addr < read_addr) ? write_addr : read_addr;
+                    nb = ((write_addr < read_addr) ? (read_addr_max - write_addr) : (write_addr_max - read_addr)) / 2;
+                }
+
+                /**
+                 * Extract the previously-received Macaroon
+                 * If verification fails, return -1
+                 * */
+                if (process_macaroon(ctx, mb_mapping->tab_string, function, addr, nb) != 0)
+                {
+                    return -1;
+                }
+            }
     }
 
     return 0;
